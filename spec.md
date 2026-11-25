@@ -1,17 +1,17 @@
-# Spec: <naam van de app>
+# Spec: Test App
 
 > Functionele waarheid van de app. Bij twijfel geldt dit bestand voor wat de app doet, CLAUDE.md voor hoe hij gebouwd is. Wordt dit bestand groter dan zo'n 50 KB, splits het dan per hoofdstuk in `docs/spec/` en laat hier een inhoudsopgave staan.
 
 ## 1. Doel en gebruikers
 
-Wat lost de app op, voor wie, en wat is nadrukkelijk geen doel?
+Test App laat zien of een developer met alleen de documentatie van het Blue Bricks-template tot een draaiende, blanco app komt. Gebruikers zijn developers van Blue Bricks. Geen doel: eigen functionaliteit of echte gegevens.
 
 ## 2. Rollen en toegang
 
 | Rol       | Wie                      | Mag                 |
 | --------- | ------------------------ | ------------------- |
-| Gebruiker | Iedereen die kan inloggen |                     |
-| Beheerder |                          |                     |
+| Gebruiker | Iedereen die kan inloggen | De startpagina zien |
+| Beheerder | De developer die de test doet | Hetzelfde als een gebruiker; er zijn nog geen beheerpagina's |
 
 ## 3. Besluiten
 
@@ -19,7 +19,7 @@ Genummerd en nooit hernummerd. Een herzien besluit krijgt een nieuw nummer en ve
 
 | #   | Datum      | Besluit | Waarom |
 | --- | ---------- | ------- | ------ |
-| 1   | dd-mm-jjjj |         |        |
+| 1   | 25-11-2026 | De app blijft het blanco skelet van het template | Het doel is het template testen, niet een domein bouwen |
 
 ## 4. Functionaliteit
 

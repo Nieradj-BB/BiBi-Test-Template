@@ -3,7 +3,7 @@
  * the template; everything else (error messages, local test cookies) derives
  * from them.
  */
-export const APP_NAME = "Blue Bricks Template";
+export const APP_NAME = "Blue Bricks Test App";
 
 /** Lowercase, no spaces. Keeps cookies of different local apps apart. */
-export const APP_SLUG = "bb-template";
+export const APP_SLUG = "bb-test-app";

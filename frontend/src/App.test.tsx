@@ -67,7 +67,7 @@ describe("sign-in page", () => {
     expect(
       await screen.findByRole("heading", {
         level: 1,
-        name: "Blue Bricks Template",
+        name: "Blue Bricks Test App",
       }),
     ).toBeInTheDocument();
     expect(
