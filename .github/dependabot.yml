@@ -1,0 +1,65 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "backend"
+    target-branch: "develop"
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "frontend"
+    target-branch: "develop"
+    # These follow the Blue Bricks UI library: minor and major versions move
+    # only with a new library tag (.claude/rules/ui.md), so the app stays on
+    # what the library was tested with. Patch versions still come through.
+    ignore:
+      - dependency-name: "radix-ui"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "lucide-react"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "class-variance-authority"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "clsx"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "tailwind-merge"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "@fontsource-variable/figtree"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "@tailwindcss/vite"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+
+  # Actions updates go through develop too, like every other change.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"
+    target-branch: "develop"
+
+  # The features in .devcontainer/devcontainer.json are pinned.
+  - package-ecosystem: "devcontainers"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    labels:
+      - "dependencies"
+      - "ci"
+    target-branch: "develop"

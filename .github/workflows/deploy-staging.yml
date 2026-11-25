@@ -1,0 +1,46 @@
+name: Deploy Staging
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    # Only after a green CI run of a push to develop (a merge), not after the
+    # CI of a PR with develop as its source branch (develop → main).
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
+    environment: staging
+    steps:
+      # DigitalOcean App Platform: the staging app runs with deploy_on_push off
+      # and builds develop itself (see .do/app.example.yaml). Secrets in the
+      # GitHub environment "staging": DO_ACCESS_TOKEN (apps scope) and
+      # DO_APP_ID_STAGING. Without the variable DO_CONFIGURED_STAGING=true the
+      # deploy is skipped with a notice, so the workflow does not fail before
+      # DigitalOcean is connected.
+      - name: Install doctl
+        if: ${{ vars.DO_CONFIGURED_STAGING == 'true' }}
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_ACCESS_TOKEN }}
+
+      - name: Deploy to App Platform (staging)
+        if: ${{ vars.DO_CONFIGURED_STAGING == 'true' }}
+        run: |
+          doctl apps create-deployment "${{ secrets.DO_APP_ID_STAGING }}" --wait
+          echo "::notice::Staging deploy finished"
+
+      - name: DigitalOcean not connected yet
+        if: ${{ vars.DO_CONFIGURED_STAGING != 'true' }}
+        run: echo "::notice::Set the variable DO_CONFIGURED_STAGING=true and the secrets DO_ACCESS_TOKEN and DO_APP_ID_STAGING to enable deploys (see docs/ci-cd.md)"

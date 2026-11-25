@@ -1,0 +1,7 @@
+# Alle tekstbestanden met LF, ook op Windows met core.autocrlf=true. Prettier,
+# de CI en Linux verwachten LF; zo is een checkout op elke machine gelijk.
+* text=auto eol=lf
+
+# Bash-scripts (zoals de Claude Code-hooks) moeten ook op Windows met LF
+# uitgecheckt worden; met CRLF falen ze in Linux en in een Codespace.
+*.sh text eol=lf

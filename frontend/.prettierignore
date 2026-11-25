@@ -1,0 +1,6 @@
+# Installed from the Blue Bricks UI library: keep them exactly as the registry
+# delivers them, so an update shows only real changes.
+src/components/ui/
+src/lib/utils.ts
+src/styles/globals.css
+src/components/app-shell/

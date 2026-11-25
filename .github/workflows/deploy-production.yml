@@ -1,0 +1,42 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    # Only after a green CI run of a push to main (a merge).
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
+    environment: production
+    steps:
+      # Secrets in the GitHub environment "production" (with required
+      # reviewers): DO_ACCESS_TOKEN and DO_APP_ID_PRODUCTION. Without the
+      # variable DO_CONFIGURED_PRODUCTION=true the deploy is skipped.
+      - name: Install doctl
+        if: ${{ vars.DO_CONFIGURED_PRODUCTION == 'true' }}
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_ACCESS_TOKEN }}
+
+      - name: Deploy to App Platform (production)
+        if: ${{ vars.DO_CONFIGURED_PRODUCTION == 'true' }}
+        run: |
+          doctl apps create-deployment "${{ secrets.DO_APP_ID_PRODUCTION }}" --wait
+          echo "::notice::Production deploy finished"
+
+      - name: DigitalOcean not connected yet
+        if: ${{ vars.DO_CONFIGURED_PRODUCTION != 'true' }}
+        run: echo "::notice::Set the variable DO_CONFIGURED_PRODUCTION=true and the secrets DO_ACCESS_TOKEN and DO_APP_ID_PRODUCTION to enable deploys (see docs/ci-cd.md)"

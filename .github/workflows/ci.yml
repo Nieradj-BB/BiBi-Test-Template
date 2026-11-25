@@ -1,0 +1,317 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-check:
+    name: Supply Chain Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Versions from known npm compromises. A stopgap: npm audit below and
+      # Dependabot do the real work.
+      - name: Check for compromised packages
+        run: |
+          COMPROMISED="chalk@5\.6\.1|debug@4\.4\.2|ansi-styles@6\.2\.2|supports-color@10\.2\.1|strip-ansi@7\.1\.1|color@5\.0\.1|color-convert@3\.1\.1|color-name@2\.0\.1|color-string@2\.1\.1|duckdb@1\.3\.3"
+          FOUND=false
+          for lockfile in backend/package-lock.json frontend/package-lock.json; do
+            if [ -f "$lockfile" ] && grep -qE "$COMPROMISED" "$lockfile"; then
+              echo "::error::Compromised packages found in $lockfile"
+              grep -E "$COMPROMISED" "$lockfile"
+              FOUND=true
+            fi
+          done
+          if [ "$FOUND" = true ]; then exit 1; fi
+          echo "No compromised packages found"
+
+  backend:
+    name: Backend Checks
+    runs-on: ubuntu-latest
+    needs: security-check
+    defaults:
+      run:
+        working-directory: ./backend
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit
+        run: |
+          if ! npm audit --audit-level=high; then
+            echo "::warning::npm audit found high-severity vulnerabilities in backend. Run 'cd backend && npm audit' locally for details."
+          fi
+
+      # Without this the Prisma types do not exist and the typecheck fails on
+      # "Module '@prisma/client' has no exported member 'PrismaClient'".
+      # Locally that goes unnoticed because the client is already generated.
+      - name: Generate Prisma client
+        run: npx prisma generate
+        env:
+          # generate does not connect; prisma.config.ts only reads the URL.
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+      - name: TypeScript check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      # The dev login lives in backend/dev/ only. If any of it is in the build,
+      # CI fails before staging or production.
+      - name: No dev login in the build
+        run: |
+          # Without dist/ grep would succeed silently (exit code 2).
+          test -d dist || { echo "::error::backend/dist is missing"; exit 1; }
+          if grep -rlE "dev-login|dev-logout|DEV_LOGIN" dist; then
+            echo "::error::The dev login is in backend/dist. It belongs in backend/dev/ only."
+            exit 1
+          fi
+
+      - name: Test
+        run: npm run test:run
+
+  smoke-test:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    needs: backend
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ./backend
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d app"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://app:app@localhost:5432/app
+      CORS_ORIGIN: http://localhost:5173
+      PORT: "3001"
+      BASE_URL: http://localhost:3001
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      # A change to schema.prisma without a migration passes typecheck and
+      # tests (they mock Prisma), and breaks in production. After all
+      # migrations the database must be exactly the schema.
+      - name: Schema matches the migrations
+        run: |
+          if ! npx prisma migrate diff --from-config-datasource \
+            --to-schema prisma/schema.prisma --exit-code; then
+            echo "::error::schema.prisma differs from the migrations. Create the missing migration (.claude/rules/commands.md)."
+            exit 1
+          fi
+
+      - name: Start the dev backend
+        run: |
+          secret="$(openssl rand -base64 36)"
+          echo "::add-mask::$secret"
+          DEV_LOGIN_ENABLED=true DEV_LOGIN_SECRET="$secret" \
+            nohup node --import tsx dev/server.ts >"$RUNNER_TEMP/dev-backend.log" 2>&1 &
+          echo $! >"$RUNNER_TEMP/dev-backend.pid"
+
+      - name: Wait for /health/ready
+        run: |
+          pid="$(cat "$RUNNER_TEMP/dev-backend.pid")"
+          for _ in $(seq 1 60); do
+            if curl -fsS --max-time 2 "$BASE_URL/health/ready" >/dev/null 2>&1; then
+              echo "The dev backend is ready."
+              exit 0
+            fi
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo "::error::The dev backend stopped before it was ready."
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "::error::The dev backend did not answer /health/ready within 60 seconds."
+          exit 1
+
+      # Sign in with the dev login, then ask who is signed in: database,
+      # migrations, session cookie and requireAuth in one go.
+      - name: Dev login and /api/auth/me
+        run: |
+          jar="$RUNNER_TEMP/cookies.txt"
+          curl -fsS --max-time 5 -c "$jar" -X POST \
+            -H "Content-Type: application/json" --data '{"role":"admin"}' \
+            "$BASE_URL/api/auth/dev-login" >/dev/null
+          me="$(curl -fsS --max-time 5 -b "$jar" "$BASE_URL/api/auth/me")"
+          echo "$me"
+          echo "$me" | grep -q '"roles":\["user","admin"\]' || {
+            echo "::error::/api/auth/me did not return the test admin."
+            exit 1
+          }
+          status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "$BASE_URL/api/auth/me")"
+          [ "$status" = "401" ] || {
+            echo "::error::/api/auth/me without a session gave HTTP $status; expected 401."
+            exit 1
+          }
+
+      - name: Stop the dev backend
+        if: always()
+        run: |
+          pidfile="$RUNNER_TEMP/dev-backend.pid"
+          [ -f "$pidfile" ] || exit 0
+          kill "$(cat "$pidfile")" 2>/dev/null || true
+
+      - name: Dev backend log
+        if: failure()
+        run: cat "$RUNNER_TEMP/dev-backend.log" || true
+
+      - name: Dev server refuses NODE_ENV=production
+        run: |
+          secret="$(openssl rand -base64 36)"
+          echo "::add-mask::$secret"
+          log="$RUNNER_TEMP/dev-production.log"
+          set +e
+          # A valid production env (SUPABASE_URL is required there; .invalid
+          # never resolves), so only the dev server's own guard can stop it.
+          NODE_ENV=production SUPABASE_URL=https://ci.invalid \
+            DEV_LOGIN_ENABLED=true DEV_LOGIN_SECRET="$secret" PORT=3002 \
+            timeout 30 node --import tsx dev/server.ts >"$log" 2>&1
+          code=$?
+          set -e
+          cat "$log"
+          if [ "$code" -eq 0 ] || [ "$code" -eq 124 ]; then
+            echo "::error::The dev server started with NODE_ENV=production (exit code $code)."
+            exit 1
+          fi
+          grep -q "NODE_ENV=production" "$log" || {
+            echo "::error::The dev server stopped (exit code $code), but not because of NODE_ENV=production."
+            exit 1
+          }
+
+      - name: The build does not know the dev login
+        run: |
+          npm run build
+          secret="$(openssl rand -base64 36)"
+          echo "::add-mask::$secret"
+          log="$RUNNER_TEMP/build-backend.log"
+          DEV_LOGIN_ENABLED=true DEV_LOGIN_SECRET="$secret" PORT=3003 \
+            node dist/index.js >"$log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          ready=false
+          for _ in $(seq 1 30); do
+            if curl -fsS --max-time 2 http://localhost:3003/health/live >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            cat "$log"
+            echo "::error::The built backend did not start."
+            exit 1
+          fi
+          for path in /api/auth/dev-login /api/auth/dev-logout; do
+            status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 -X POST \
+              -H "Content-Type: application/json" --data '{"role":"admin"}' \
+              "http://localhost:3003$path")"
+            if [ "$status" != "404" ]; then
+              cat "$log"
+              echo "::error::POST $path gave HTTP $status in the build; expected 404."
+              exit 1
+            fi
+            echo "POST $path gives 404 in the build."
+          done
+
+  frontend:
+    name: Frontend Checks
+    runs-on: ubuntu-latest
+    needs: security-check
+    defaults:
+      run:
+        working-directory: ./frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit
+        run: |
+          if ! npm audit --audit-level=high; then
+            echo "::warning::npm audit found high-severity vulnerabilities in frontend. Run 'cd frontend && npm audit' locally for details."
+          fi
+
+      - name: TypeScript check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # With the flag on, as in a Codespace: even then the dev login must not
+      # end up in the build (it sits behind import.meta.env.DEV and the mode).
+      - name: Build
+        run: npm run build
+        env:
+          VITE_DEV_LOGIN_ENABLED: "true"
+
+      - name: No dev login in the build
+        run: |
+          test -d dist || { echo "::error::frontend/dist is missing"; exit 1; }
+          if grep -rlE "dev-login|dev-logout|DEV_LOGIN|Direct inloggen" dist; then
+            echo "::error::The dev login is in frontend/dist. It belongs behind import.meta.env.DEV and the mode only."
+            exit 1
+          fi
+
+      - name: Test
+        run: npm run test:run

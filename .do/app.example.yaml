@@ -1,0 +1,96 @@
+# DigitalOcean App Platform: example app spec.
+#
+# Copy to .do/app-staging.yaml (branch develop) and .do/app-production.yaml
+# (branch main) and replace every <placeholder>. Create the app once with:
+#   doctl apps create --spec .do/app-staging.yaml
+# SECRET values stay empty here: fill them in the DigitalOcean console. This
+# file is documentation: the deploy workflows do NOT apply it (they only run
+# create-deployment), and `doctl apps update --spec` with empty SECRET values
+# wipes the secrets in DigitalOcean.
+name: <app-name>-staging
+region: ams
+
+services:
+  - name: backend
+    environment_slug: node-js
+    github:
+      repo: <owner>/<repo>
+      branch: develop
+      # Deploys run through GitHub Actions after a green CI, not on every push.
+      deploy_on_push: false
+    source_dir: backend
+    build_command: npm ci && npx prisma generate && npm run build
+    # Migrations are idempotent and run on every (re)start.
+    run_command: npx prisma migrate deploy && node dist/index.js
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    health_check:
+      http_path: /health/ready
+      initial_delay_seconds: 20
+    routes:
+      - path: /api
+        preserve_path_prefix: true
+    envs:
+      # RUN_TIME only: the build needs the devDependencies (tsc, prisma).
+      - key: NODE_ENV
+        value: production
+        scope: RUN_TIME
+      - key: PORT
+        value: "8080"
+      - key: LOG_LEVEL
+        value: info
+      - key: CORS_ORIGIN
+        value: ${APP_URL}
+      # X-Forwarded-For holds DigitalOcean's ingress, the same for every user;
+      # the client's address is in this header (docs/ci-cd.md, rate limiter).
+      - key: CLIENT_IP_HEADER
+        value: do-connecting-ip
+        scope: RUN_TIME
+      # Bound to the database component `db` below: DigitalOcean fills in URL
+      # and CA certificate itself; nobody copies a password. Also at build
+      # time: prisma.config.ts reads DATABASE_URL during `prisma generate`.
+      - key: DATABASE_URL
+        value: ${db.DATABASE_URL}
+      - key: DATABASE_CA_CERT
+        value: ${db.CA_CERT}
+        scope: RUN_TIME
+      - key: SUPABASE_URL
+        value: https://<supabase-ref>.supabase.co
+      # Never DEV_LOGIN_* here: the dev login exists in backend/dev/ only.
+      # Add the app's own variables below; secrets with `type: SECRET`.
+
+static_sites:
+  - name: frontend
+    environment_slug: node-js
+    github:
+      repo: <owner>/<repo>
+      branch: develop
+      deploy_on_push: false
+    source_dir: frontend
+    build_command: npm ci && npm run build
+    output_dir: dist
+    # SPA: every path to index.html (React Router).
+    catchall_document: index.html
+    routes:
+      - path: /
+    # Vite bakes these in at build time; a change needs a new deploy.
+    envs:
+      - key: VITE_SUPABASE_URL
+        value: https://<supabase-ref>.supabase.co
+        scope: BUILD_TIME
+      # The publishable key belongs in the browser; it is not a secret.
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        value: <publishable-key>
+        scope: BUILD_TIME
+
+# An existing managed database cluster. DigitalOcean binds the app and adds it
+# as a trusted source. Create database, user and the GRANT on schema public
+# beforehand.
+databases:
+  - name: db
+    engine: PG
+    production: true
+    cluster_name: <cluster-name>
+    db_name: <app_name>_staging
+    db_user: <app_name>
