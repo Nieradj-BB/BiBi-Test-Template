@@ -6,8 +6,8 @@ Stappen van groot naar klein. Eén stap is één feature-branch en één PR. Wer
 
 | #   | Stap                                   | Status   | Branch |
 | --- | -------------------------------------- | -------- | ------ |
-| 1   | Spec en glossary invullen              | open     |        |
-| 2   | App-naam, Supabase en DigitalOcean inrichten (README, "Een nieuwe app") | open |        |
+| 1   | Spec en glossary invullen              | klaar    | feature/test-app-setup |
+| 2   | App-naam, Supabase en DigitalOcean inrichten (README, "Een nieuwe app") | bezig (naam klaar; Supabase en DigitalOcean niet) | feature/test-app-setup |
 | 3   | …                                      | open     |        |
 
 Status: `open`, `bezig`, `klaar`.
@@ -16,4 +16,4 @@ Status: `open`, `bezig`, `klaar`.
 
 | Datum      | Wat |
 | ---------- | --- |
-| dd-mm-jjjj | Gestart vanuit het Blue Bricks-template |
+| 25-11-2026 | Gestart vanuit het Blue Bricks-template |

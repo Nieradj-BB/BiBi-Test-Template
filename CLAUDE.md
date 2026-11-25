@@ -1,10 +1,10 @@
-# Blue Bricks App
+# Blue Bricks Test App
 
 > **Stack versie:** 3.0 | **Laatst bijgewerkt:** november 2026
 
 Blue Bricks bouwt webapplicaties met een vaste, bewezen stack. Deze repo is gestart vanuit het Blue Bricks-template: een werkend skelet zonder domein. Bij conflicten geldt CLAUDE.md voor stack en techniek, en `spec.md` voor de functionaliteit.
 
-<!-- Nieuwe app: vervang de titel hierboven en zet hier in twee zinnen wat de app doet en voor wie. -->
+Test App is een blanco app waarmee we controleren of het Blue Bricks-template met alleen de documentatie tot een draaiende app leidt. Hij is bedoeld voor developers van Blue Bricks die het template beoordelen, en heeft bewust geen eigen functionaliteit.
 
 ## Waar staat wat
 
